@@ -5,12 +5,20 @@ import pandas as pd  # data processing, CSV file I/O (e.g. pd.read_csv)
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.stats import norm
-from sklearn.ensemble import ExtraTreesClassifier
+from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import GridSearchCV, train_test_split
+from sklearn.naive_bayes import GaussianNB
+from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeClassifier
 
 
 class RedWine:
     def __init__(self, filePath):
         self.data = pd.read_csv(filePath)
+        self.x = pd.DataFrame.empty
+        self.y = pd.DataFrame.empty
 
     def basicInfo(self):
         print("Basic information about data:\n")
@@ -94,14 +102,76 @@ class RedWine:
             self.data = self.data[(self.data[column] > lower) & (self.data[column] < upper)]
 
     def viewBestFeatures(self):
-        x = self.data.drop("quality", axis=True)
-        y = self.data["quality"]
+        self.x = self.data.drop("quality", axis=True)
+        self.y = self.data["quality"]
         model = ExtraTreesClassifier()
-        model.fit(x, y)
+        model.fit(self.x, self.y)
         print(model.feature_importances_)
-        feat_importances = pd.Series(model.feature_importances_, index=x.columns)
+        feat_importances = pd.Series(model.feature_importances_, index=self.x.columns)
         feat_importances.nlargest(9).plot(kind="barh")
         plt.show()
+
+    def selectBestModel(self):
+        model_params = {
+            "svm": {
+                "model": SVC(gamma="auto"),
+                "params": {
+                    'C': [1, 10, 20],
+                    'kernel': ["rbf"]
+                }
+            },
+
+            "decision_tree": {
+                "model": DecisionTreeClassifier(),
+                "params": {
+                    'criterion': ["entropy", "gini"],
+                    "max_depth": [5, 8, 9]
+                }
+            },
+
+            "random_forest": {
+                "model": RandomForestClassifier(),
+                "params": {
+                    "n_estimators": [1, 5, 10],
+                    "max_depth": [5, 8, 9]
+                }
+            },
+            "naive_bayes": {
+                "model": GaussianNB(),
+                "params": {}
+            },
+
+            'logistic_regression': {
+                'model': LogisticRegression(solver='liblinear', multi_class='auto'),
+                'params': {
+                    "C": [1, 5, 10]
+                }
+            }
+
+        }
+
+        score = []
+        for model_name, mp in model_params.items():
+            clf = GridSearchCV(mp["model"], mp["params"], cv=8, return_train_score=False)
+            clf.fit(self.x, self.y)
+            score.append({
+                "Model": model_name,
+                "Best_Score": clf.best_score_,
+                "Best_Params": clf.best_params_
+            })
+
+        modelScores = pd.DataFrame(score,columns=["Model","Best_Score","Best_Params"])
+        print(modelScores)
+
+    def predictingValues(self):
+        x_train, x_test, y_train, y_test = train_test_split(self.x, self.y, test_size=0.33, random_state=43)
+        clf_svm1 = SVC(kernel="rbf", C=1)
+        clf_svm1.fit(x_train, y_train)
+        y_pred = clf_svm1.predict(x_test)
+        accuracy = accuracy_score(y_test, y_pred)
+        print("\nAccuracy:", accuracy)
+        accuracy_dataframe = pd.DataFrame({"y_test": y_test, "y_pred": y_pred})
+        print("\nAccuracy dataframe:\n", accuracy_dataframe)
 
 
 red = RedWine("C:\\Users\\Michael\\PycharmProjects\\BIAI\\winequality-red.csv")
@@ -157,19 +227,23 @@ red = RedWine("C:\\Users\\Michael\\PycharmProjects\\BIAI\\winequality-red.csv")
 red.categoriseNumbers()
 red.howManyQualityValues()
 
-# # Viewing outliers
-red.viewOutliers()
-
-# We need to remove outliers from 3 columns (residual sugar, free sulfur dioxide, total sulfur dioxide)
-# to get more accurate results
-red.viewOutliersFromColumn("residual sugar", "free sulfur dioxide", "total sulfur dioxide")
-
-# Removing outliers
-red.removeOutliers("residual sugar", "free sulfur dioxide", "total sulfur dioxide")
-red.viewOutliersFromColumn("residual sugar", "free sulfur dioxide", "total sulfur dioxide")
-red.correlationPlot()
+# # # Viewing outliers
+# red.viewOutliers()
+#
+# # We need to remove outliers from 3 columns (residual sugar, free sulfur dioxide, total sulfur dioxide)
+# # to get more accurate results
+# red.viewOutliersFromColumn("residual sugar", "free sulfur dioxide", "total sulfur dioxide")
+#
+# # Removing outliers
+# red.removeOutliers("residual sugar", "free sulfur dioxide", "total sulfur dioxide")
+# red.viewOutliersFromColumn("residual sugar", "free sulfur dioxide", "total sulfur dioxide")
+# red.correlationPlot()
 
 # Viewing best Features for our Model
 red.viewBestFeatures()
+
+red.selectBestModel()
+
+red.predictingValues()
 
 
