@@ -5,93 +5,81 @@ import pandas as pd  # data processing, CSV file I/O (e.g. pd.read_csv)
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-winequality_red_csv = "C:\\Users\\Michael\\PycharmProjects\\BIAI\\winequality-red.csv"
-data = pd.read_csv(winequality_red_csv)
 
-# print(data.head())
+class RedWine:
+    def __init__(self, filePath):
+        self.data = pd.read_csv(filePath)
 
-# print(data.columns)
+    def basicInfo(self):
+        print("Basic information about data:\n")
+        print(self.data.describe())
+        print("Data Shape --> ", self.data.shape, "\n")
+        print("How many null values in columns:")
+        print(self.data.isnull().sum())
 
-# print("Data Shape --> ", data.shape)
+    def impactOnQuality(self, feature):
+        print(self.data[[feature, "quality"]].groupby(["quality"], as_index=False).mean().sort_values(by="quality"))
+        sns.lineplot(x="quality", y=feature, data=self.data)
+        plt.title(feature.capitalize() + " impact on quality")
+        plt.grid()
+        plt.show()
 
-# print(data.describe())
+    def infoAboutQuality(self):
+        Number = self.data.quality.value_counts().values
+        Label = self.data.quality.value_counts().index
+        circle = plt.Circle((0, 0), 0.2, color="white")
+        explodeTuple = (0.0, 0.0, 0.0, 0.3, 0.5, 0.5)
+
+        plt.figure(figsize=(13, 5))
+        plt.subplot(1, 2, 1)
+        sns.countplot(self.data["quality"])
+        plt.xlabel("quality")
+        plt.title("quality distribution", color="black", fontweight='bold', fontsize=11)
+        plt.subplot(1, 2, 2)
+        plt.pie(Number, labels=Label, autopct='%1.2f%%', explode=explodeTuple, startangle=60)
+        p = plt.gcf()
+        p.gca().add_artist(circle)
+        plt.title("quality distribution", color="black", fontweight='bold', fontsize=11)
+        plt.legend()
+        plt.show()
+
+
+red = RedWine("C:\\Users\\Michael\\PycharmProjects\\BIAI\\winequality-red.csv")
+
+red.basicInfo()
 
 # fixed acidity impact on quality
-print(data[["fixed acidity", "quality"]].groupby(["quality"], as_index=False).mean().sort_values(by="quality"))
-sns.lineplot(x="quality", y="fixed acidity", data=data)
-plt.title("Fixed Acidity impact on quality")
-plt.grid()
-plt.show()
+red.impactOnQuality("fixed acidity")
 
 # volatile acidity impact on quality
-print(data[["volatile acidity", "quality"]].groupby(["quality"], as_index=False).mean().sort_values(by="quality"))
-sns.lineplot(x="quality", y="volatile acidity", data=data)
-plt.title("Volatile Acidity impact on quality")
-plt.grid()
-plt.show()
+red.impactOnQuality("volatile acidity")
 
 # cidric acid impact on quality
-print(data[["citric acid", "quality"]].groupby(["quality"], as_index=False).mean().sort_values(by="quality"))
-sns.lineplot(x="quality", y="citric acid", data=data)
-plt.title("Citric Acid impact on quality")
-plt.grid()
-plt.show()
+red.impactOnQuality("citric acid")
 
 # residual sugar impact on quality
-print(data[["residual sugar", "quality"]].groupby(["quality"], as_index=False).mean().sort_values(by="quality"))
-sns.lineplot(x="quality", y="residual sugar", data=data)
-plt.title("Residual Sugar impact on quality")
-plt.grid()
-plt.show()
+red.impactOnQuality("residual sugar")
 
 # chlorides impact on quality
-print(data[["chlorides", "quality"]].groupby(["quality"], as_index=False).mean().sort_values(by="quality"))
-sns.lineplot(x="quality", y="chlorides", data=data)
-plt.title("Chlorides impact on quality")
-plt.grid()
-plt.show()
+red.impactOnQuality("chlorides")
 
 # free sulfur dioxide impact on quality
-print(data[["free sulfur dioxide", "quality"]].groupby(["quality"], as_index=False).mean().sort_values(by="quality"))
-sns.lineplot(x="quality", y="free sulfur dioxide", data=data)
-plt.title("Free sulfur dioxide impact on quality")
-plt.grid()
-plt.show()
+red.impactOnQuality("free sulfur dioxide")
 
 # total sulfur dioxide impact on quality
-print(data[["total sulfur dioxide", "quality"]].groupby(["quality"], as_index=False).mean().sort_values(by="quality"))
-sns.lineplot(x="quality", y="total sulfur dioxide", data=data)
-plt.title("Total sulfur dioxide impact on quality")
-plt.grid()
-plt.show()
+red.impactOnQuality("total sulfur dioxide")
 
 # density impact on quality
-print(data[["density", "quality"]].groupby(["quality"], as_index=False).mean().sort_values(by="quality"))
-sns.lineplot(x="quality", y="density", data=data)
-plt.title("Density impact on quality")
-plt.grid()
-plt.show()
+red.impactOnQuality("density")
 
 # pH impact on quality
-print(data[["pH", "quality"]].groupby(["quality"], as_index=False).mean().sort_values(by="quality"))
-sns.lineplot(x="quality", y="pH", data=data)
-plt.title("pH impact on quality")
-plt.grid()
-plt.show()
+red.impactOnQuality("pH")
 
 # sulphates impact on quality
-print(data[["sulphates", "quality"]].groupby(["quality"], as_index=False).mean().sort_values(by="quality"))
-sns.lineplot(x="quality", y="sulphates", data=data)
-plt.title("Sulphates against Quality")
-plt.grid()
-plt.show()
+red.impactOnQuality("sulphates")
 
 # alcohol impact on quality
-print(data[["alcohol", "quality"]].groupby(["quality"], as_index=False).mean().sort_values(by="quality"))
-sns.lineplot(x="quality", y="alcohol", data=data)
-plt.title("Alcohol against Quality")
-plt.grid()
-plt.show()
+red.impactOnQuality("alcohol")
 
-# how many null values in columns
-print(data.isnull().sum())
+# basic info about quality of wines
+red.infoAboutQuality()
