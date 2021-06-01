@@ -1,3 +1,4 @@
+import collections
 from collections import Counter
 
 import numpy as np  # linear algebra
@@ -8,16 +9,21 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy import stats
 from scipy.stats import norm, boxcox
-from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier
+from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier, GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
-from sklearn.model_selection import GridSearchCV, train_test_split
+from sklearn.metrics import accuracy_score, confusion_matrix, plot_confusion_matrix, classification_report
+from sklearn.model_selection import GridSearchCV, train_test_split, RandomizedSearchCV
 from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
+from imblearn.over_sampling import SMOTE
+from xgboost import XGBClassifier
+from catboost import CatBoostClassifier
+from scipy.stats import uniform as sp_randFloat
+from scipy.stats import randint as sp_randInt
 
 import warnings
-
 warnings.filterwarnings('ignore')
 
 
@@ -26,6 +32,8 @@ class RedWine:
         self.data = pd.read_csv(filePath)
         self.x = pd.DataFrame.empty
         self.y = pd.DataFrame.empty
+        self.test_size = 0.2
+        self.results = []
 
     def basicInfo(self):
         print("Basic information about data:\n")
@@ -79,14 +87,6 @@ class RedWine:
             sns.distplot(self.data[self.data.columns[i]], fit=norm)
         plt.show()
 
-    def howManyQualityValues(self):
-        print(self.data['quality'].value_counts().sort_values())
-
-    def categoriseNumbers(self):
-        self.data['quality'] = self.data['quality'].map(
-            {3: 'low', 4: 'low', 5: 'medium', 6: 'medium', 7: 'high', 8: 'high'})
-        self.data['quality'] = self.data['quality'].map({'low': 0, 'medium': 1, 'high': 2})
-
     def skewness(self, *columns):
         print()
         for column in columns:
@@ -110,7 +110,7 @@ class RedWine:
         sns.boxplot(data=self.data)
         plt.show()
 
-    def countOutliers(self, columns):
+    def countAndRemoveOutliers(self, columns):
         outlier_indices = []
 
         for c in columns:
@@ -131,6 +131,8 @@ class RedWine:
         multiple_outliers = list(i for i, v in outlier_indices.items() if v > 1.5)
 
         print("number of outliers detected: ", len(multiple_outliers))
+        # removal of outliers
+        self.data = self.data.drop(multiple_outliers, axis=0).reset_index(drop=True)
 
     def viewOutliersFromColumn(self, *columns):
         fig, ax = plt.subplots(1, len(columns))
@@ -141,84 +143,136 @@ class RedWine:
 
         plt.show()
 
-    def removeOutliers(self, *columns):
-        for column in columns:
-            lower = self.data[column].mean() - 3 * self.data[column].std()
-            upper = self.data[column].mean() + 3 * self.data[column].std()
-            self.data = self.data[(self.data[column] > lower) & (self.data[column] < upper)]
+    def howManyQualityValues(self):
+        print(self.data['quality'].value_counts().sort_values())
 
-    def viewBestFeatures(self):
-        self.x = self.data.drop("quality", axis=True)
-        self.y = self.data["quality"]
-        model = ExtraTreesClassifier()
-        model.fit(self.x, self.y)
-        print(model.feature_importances_)
-        feat_importances = pd.Series(model.feature_importances_, index=self.x.columns)
-        feat_importances.nlargest(9).plot(kind="barh")
+    def categoriseNumbers(self):
+        bins = (2, 6.5, 8)
+        labels = [0, 1]
+        self.data['quality'] = pd.cut(x=self.data['quality'], bins=bins, labels=labels)
+
+    def smote(self):
+        y = self.data.quality
+        x = self.data.drop(["quality"], axis=1)
+        self.x_train, self.x_test, self.y_train, self.y_test = train_test_split(x, y, test_size=self.test_size,
+                                                                                random_state=200)
+        sm = SMOTE(random_state=14)
+        self.x_train_sm, self.y_train_sm = sm.fit_resample(self.x_train, self.y_train)
+        print("Before smote: ", collections.Counter(self.y_train))
+        print("After smote: ", collections.Counter(self.y_train_sm))
+
+    def kNeighborsClassifier(self):
+        knn = KNeighborsClassifier(n_neighbors=2)
+        knn.fit(self.x_train_sm, self.y_train_sm)
+        y_pred = knn.predict(self.x_test)
+        cm = confusion_matrix(self.y_test, y_pred)
+
+        acc = accuracy_score(self.y_test, y_pred)
+        score = knn.score(self.x_test, self.y_test)
+        self.results.append(acc)
+
+        print("Score : ", score)
+        print("KNeighborsClassifier Acc : ", acc)
+
+        plot_confusion_matrix(knn, self.x_test, self.y_test, cmap="Greens")
+        plt.show()
+        print(" \t \t  KNN Classification Report")
+        print(classification_report(self.y_test, y_pred))
+
+    def gradientBoostingClassifier(self):
+        gbc = GradientBoostingClassifier(max_depth=6, random_state=2)
+        gbc.fit(self.x_train_sm, self.y_train_sm)
+        y_pred_gbc = gbc.predict(self.x_test)
+        cm_aaa = confusion_matrix(self.y_test, y_pred_gbc)
+        acc = accuracy_score(self.y_test, y_pred_gbc)
+        score = gbc.score(self.x_test, self.y_test)
+        self.results.append(acc)
+
+        print("Score : ", score)
+        print("GradientBoostingClassifier Acc : ", acc)
+
+        plot_confusion_matrix(gbc, self.x_test, self.y_test, cmap="binary")
+        plt.show()
+        print(" \t \t  GradientBoostingClassifier Classification Report")
+        print(classification_report(self.y_test, y_pred_gbc))
+
+    def svc(self):
+        svc = SVC()
+        svc.fit(self.x_train_sm, self.y_train_sm)
+        pred_svc = svc.predict(self.x_test)
+
+        cm_svc = confusion_matrix(self.y_test, pred_svc)
+        acc = accuracy_score(self.y_test, pred_svc)
+        score = svc.score(self.x_test, self.y_test)
+        self.results.append(acc)
+
+        print("Score : ", score)
+        print("SVC Acc : ", acc)
+
+        plot_confusion_matrix(svc, self.x_test, self.y_test, cmap="Reds")
+        plt.show()
+        print(" \t \t  SVC Classification Report")
+        print(classification_report(self.y_test, pred_svc))
+
+    def xgb(self):
+        xgb = XGBClassifier()
+        xgb.fit(self.x_train_sm, self.y_train_sm)
+        pred_xgb = xgb.predict(self.x_test)
+
+        cm_aaa = confusion_matrix(self.y_test, pred_xgb)
+        acc = accuracy_score(self.y_test, pred_xgb)
+        score = xgb.score(self.x_test, self.y_test)
+        self.results.append(acc)
+
+        print("Score : ", score)
+        print("XGBClassifier Acc : ", acc)
+
+        plot_confusion_matrix(xgb, self.x_test, self.y_test, cmap="copper")
+        plt.show()
+        print(" \t \t  XGBClassifier Classification Report")
+        print(classification_report(self.y_test, pred_xgb))
+
+    def randomForestClassifier(self):
+        rf = RandomForestClassifier(max_depth=18, random_state=44, bootstrap=False)
+        rf.fit(self.x_train_sm, self.y_train_sm)
+        y_pred_rf = rf.predict(self.x_test)
+        cm = confusion_matrix(self.y_test, y_pred_rf)
+
+        acc = accuracy_score(self.y_test, y_pred_rf)
+        score = rf.score(self.x_test, self.y_test)
+        self.results.append(acc)
+
+        print("Score : ", score)
+        print("RandomForestClassifier Acc : ", acc)
+
+        plot_confusion_matrix(rf, self.x_test, self.y_test, cmap="pink")
         plt.show()
 
-    def selectBestModel(self):
-        model_params = {
-            "svm": {
-                "model": SVC(gamma="auto"),
-                "params": {
-                    'C': [1, 10, 20],
-                    'kernel': ["rbf"]
-                }
-            },
-
-            "decision_tree": {
-                "model": DecisionTreeClassifier(),
-                "params": {
-                    'criterion': ["entropy", "gini"],
-                    "max_depth": [5, 8, 9]
-                }
-            },
-
-            "random_forest": {
-                "model": RandomForestClassifier(),
-                "params": {
-                    "n_estimators": [1, 5, 10],
-                    "max_depth": [5, 8, 9]
-                }
-            },
-            "naive_bayes": {
-                "model": GaussianNB(),
-                "params": {}
-            },
-
-            'logistic_regression': {
-                'model': LogisticRegression(solver='liblinear', multi_class='auto'),
-                'params': {
-                    "C": [1, 5, 10]
-                }
-            }
-
+    def catBoostClassifier(self):
+        parameters = {
+            'depth': sp_randInt(4, 10),
+            'learning_rate': sp_randFloat(),
+            'iterations': sp_randInt(10, 100)
         }
+        cat = CatBoostClassifier(iterations=1000, verbose=False, depth=8)
+        randm = RandomizedSearchCV(estimator=cat, param_distributions=parameters,
+                                   cv=2, n_iter=10, n_jobs=-1)
+        randm.fit(self.x_train_sm, self.y_train_sm)
 
-        score = []
-        for model_name, mp in model_params.items():
-            clf = GridSearchCV(mp["model"], mp["params"], cv=8, return_train_score=False)
-            clf.fit(self.x, self.y)
-            score.append({
-                "Model": model_name,
-                "Best_Score": clf.best_score_,
-                "Best_Params": clf.best_params_
-            })
+        pred_cat = randm.predict(self.x_test)
 
-        modelScores = pd.DataFrame(score, columns=["Model", "Best_Score", "Best_Params"])
-        print(modelScores)
+        cm_cat = confusion_matrix(self.y_test, pred_cat)
+        acc = accuracy_score(self.y_test, pred_cat)
+        score = randm.score(self.x_test, self.y_test)
+        self.results.append(acc)
 
-    def predictingValues(self):
-        x_train, x_test, y_train, y_test = train_test_split(self.x, self.y, test_size=0.66, random_state=0)
-        clf_svm1 = SVC(kernel="rbf", C=1)
-        clf_svm1.fit(x_train, y_train)
-        y_pred = clf_svm1.predict(x_test)
-        accuracy = accuracy_score(y_test, y_pred)
-        print("\nAccuracy:", accuracy)
-        accuracy_dataframe = pd.DataFrame({"y_test": y_test, "y_pred": y_pred})
-        print("\nAccuracy dataframe:\n", accuracy_dataframe)
-        accuracy_dataframe.to_csv("C:\\Users\\Michael\\PycharmProjects\\BIAI\\winequality-result.csv")
+        print("Score : ", score)
+        print("Basic KNN Acc : ", acc)
+
+        plot_confusion_matrix(randm, self.x_test, self.y_test, cmap="hot")
+        plt.show()
+        print(" \t \t  RandomForestClassifier Classification Report")
+        print(classification_report(self.y_test, pred_cat))
 
 
 red = RedWine("C:\\Users\\Michael\\PycharmProjects\\BIAI\\winequality-red.csv")
@@ -267,41 +321,43 @@ red = RedWine("C:\\Users\\Michael\\PycharmProjects\\BIAI\\winequality-red.csv")
 # # Distribution of Variables
 # red.distributionOfVariables()
 
-# # Show how many values depending on quality
-# red.howManyQualityValues()
+# # View skewness on graphs
+# red.skewness("fixed acidity", "residual sugar", "free sulfur dioxide", "total sulfur dioxide", "alcohol")
+#
+# # Trying to eliminate skewness by using box cox
+# red.fixSkewness("fixed acidity", "residual sugar", "free sulfur dioxide", "total sulfur dioxide", "alcohol")
+#
+# # View corrected skewness on graphs
+# red.skewness("fixed acidity", "residual sugar", "free sulfur dioxide", "total sulfur dioxide", "alcohol")
 
-# Categorise numbers for low, medium and high quality
-red.categoriseNumbers()
+# # Viewing outliers
+
+# red.viewOutliers()
+red.countAndRemoveOutliers(red.data.columns[:-1])
+# red.viewOutliers()
+
+# Show how many values depending on quality
 red.howManyQualityValues()
 
-# View skewness on graphs
-red.skewness("fixed acidity", "residual sugar", "free sulfur dioxide", "total sulfur dioxide", "alcohol")
+# Categorise numbers for low and high quality
+red.categoriseNumbers()
+red.howManyQualityValues()
+# We can see the difference between those two
 
-# Trying to eliminate skewness by using box cox
-red.fixSkewness("fixed acidity", "residual sugar", "free sulfur dioxide", "total sulfur dioxide", "alcohol")
+# Lets balance our data
+red.smote()
 
-# View corrected skewness on graphs
-red.skewness("fixed acidity", "residual sugar", "free sulfur dioxide", "total sulfur dioxide", "alcohol")
+# KNeighborsClassifier
+red.kNeighborsClassifier()
 
-# # # Viewing outliers
-red.viewOutliers()
-red.countOutliers(red.data.columns[:-1])
-#
-# # We need to remove outliers from 3 columns (residual sugar, free sulfur dioxide, total sulfur dioxide)
-# # to get more accurate results
-red.viewOutliersFromColumn("residual sugar", "free sulfur dioxide", "total sulfur dioxide")
-#
-# # Removing outliers
-red.removeOutliers(red.data.columns[:-1])
-red.countOutliers(red.data.columns[:-1])
-red.viewOutliersFromColumn("residual sugar", "free sulfur dioxide", "total sulfur dioxide")
+# GradientBoostingClassifier
+red.gradientBoostingClassifier()
 
-# red.viewOutliersFromColumn("residual sugar", "free sulfur dioxide", "total sulfur dioxide")
-# red.correlationPlot()
+# SVC
+red.svc()
 
-# Viewing best Features for our Model
-# red.viewBestFeatures()
-#
-# red.selectBestModel()
-#
-# red.predictingValues()
+# XGBClassifier
+red.xgb()
+
+# RandomForestClassifier
+red.randomForestClassifier()
