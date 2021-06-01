@@ -1,10 +1,13 @@
+from collections import Counter
+
 import numpy as np  # linear algebra
 import pandas as pd  # data processing, CSV file I/O (e.g. pd.read_csv)
 
 # data visualisation
 import matplotlib.pyplot as plt
 import seaborn as sns
-from scipy.stats import norm
+from scipy import stats
+from scipy.stats import norm, boxcox
 from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
@@ -12,6 +15,10 @@ from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.naive_bayes import GaussianNB
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
+
+import warnings
+
+warnings.filterwarnings('ignore')
 
 
 class RedWine:
@@ -80,14 +87,53 @@ class RedWine:
             {3: 'low', 4: 'low', 5: 'medium', 6: 'medium', 7: 'high', 8: 'high'})
         self.data['quality'] = self.data['quality'].map({'low': 0, 'medium': 1, 'high': 2})
 
+    def skewness(self, *columns):
+        print()
+        for column in columns:
+            (mu, sigma) = norm.fit(self.data[column])
+            print("Mean value of {}: {}, sigma {}: {}".format(column, mu, column, sigma))
+            plt.figure(figsize=(10, 4))
+            plt.subplot(1, 2, 1)
+            sns.distplot(self.data[column], fit=norm, color="blue")
+            plt.title(column.capitalize() + " Distplot", color="darkred")
+            plt.subplot(1, 2, 2)
+            stats.probplot(self.data[column], plot=plt)
+            plt.show()
+
+    def fixSkewness(self, *columns):
+        for column in columns:
+            self.data[column], lam_fixed_acidity = boxcox(self.data[column])
+
     def viewOutliers(self):
         sns.set()
         plt.figure(figsize=(30, 15))
         sns.boxplot(data=self.data)
         plt.show()
 
+    def countOutliers(self, columns):
+        outlier_indices = []
+
+        for c in columns:
+            # 1st quartile
+            Q1 = np.percentile(self.data[c], 25)
+            # 3st quartile
+            Q3 = np.percentile(self.data[c], 75)
+            # IQR
+            IQR = Q3 - Q1
+            # Outlier Step
+            outlier_step = IQR * 1.5
+            # detect outlier and their indeces
+            outlier_list_col = self.data[(self.data[c] < Q1 - outlier_step) | (self.data[c] > Q3 + outlier_step)].index
+            # store indeces
+            outlier_indices.extend(outlier_list_col)
+
+        outlier_indices = Counter(outlier_indices)
+        multiple_outliers = list(i for i, v in outlier_indices.items() if v > 1.5)
+
+        print("number of outliers detected: ", len(multiple_outliers))
+
     def viewOutliersFromColumn(self, *columns):
-        fig, ax = plt.subplots(1, 3)
+        fig, ax = plt.subplots(1, len(columns))
         i = 0
         for column in columns:
             sns.boxplot(self.data[column], ax=ax[i])
@@ -95,7 +141,7 @@ class RedWine:
 
         plt.show()
 
-    def removeOutliers(self, * columns):
+    def removeOutliers(self, *columns):
         for column in columns:
             lower = self.data[column].mean() - 3 * self.data[column].std()
             upper = self.data[column].mean() + 3 * self.data[column].std()
@@ -160,11 +206,11 @@ class RedWine:
                 "Best_Params": clf.best_params_
             })
 
-        modelScores = pd.DataFrame(score,columns=["Model","Best_Score","Best_Params"])
+        modelScores = pd.DataFrame(score, columns=["Model", "Best_Score", "Best_Params"])
         print(modelScores)
 
     def predictingValues(self):
-        x_train, x_test, y_train, y_test = train_test_split(self.x, self.y, test_size=0.33, random_state=43)
+        x_train, x_test, y_train, y_test = train_test_split(self.x, self.y, test_size=0.66, random_state=0)
         clf_svm1 = SVC(kernel="rbf", C=1)
         clf_svm1.fit(x_train, y_train)
         y_pred = clf_svm1.predict(x_test)
@@ -172,6 +218,7 @@ class RedWine:
         print("\nAccuracy:", accuracy)
         accuracy_dataframe = pd.DataFrame({"y_test": y_test, "y_pred": y_pred})
         print("\nAccuracy dataframe:\n", accuracy_dataframe)
+        accuracy_dataframe.to_csv("C:\\Users\\Michael\\PycharmProjects\\BIAI\\winequality-result.csv")
 
 
 red = RedWine("C:\\Users\\Michael\\PycharmProjects\\BIAI\\winequality-red.csv")
@@ -227,23 +274,34 @@ red = RedWine("C:\\Users\\Michael\\PycharmProjects\\BIAI\\winequality-red.csv")
 red.categoriseNumbers()
 red.howManyQualityValues()
 
+# View skewness on graphs
+red.skewness("fixed acidity", "residual sugar", "free sulfur dioxide", "total sulfur dioxide", "alcohol")
+
+# Trying to eliminate skewness by using box cox
+red.fixSkewness("fixed acidity", "residual sugar", "free sulfur dioxide", "total sulfur dioxide", "alcohol")
+
+# View corrected skewness on graphs
+red.skewness("fixed acidity", "residual sugar", "free sulfur dioxide", "total sulfur dioxide", "alcohol")
+
 # # # Viewing outliers
-# red.viewOutliers()
+red.viewOutliers()
+red.countOutliers(red.data.columns[:-1])
 #
 # # We need to remove outliers from 3 columns (residual sugar, free sulfur dioxide, total sulfur dioxide)
 # # to get more accurate results
-# red.viewOutliersFromColumn("residual sugar", "free sulfur dioxide", "total sulfur dioxide")
+red.viewOutliersFromColumn("residual sugar", "free sulfur dioxide", "total sulfur dioxide")
 #
 # # Removing outliers
-# red.removeOutliers("residual sugar", "free sulfur dioxide", "total sulfur dioxide")
+red.removeOutliers(red.data.columns[:-1])
+red.countOutliers(red.data.columns[:-1])
+red.viewOutliersFromColumn("residual sugar", "free sulfur dioxide", "total sulfur dioxide")
+
 # red.viewOutliersFromColumn("residual sugar", "free sulfur dioxide", "total sulfur dioxide")
 # red.correlationPlot()
 
 # Viewing best Features for our Model
-red.viewBestFeatures()
-
-red.selectBestModel()
-
-red.predictingValues()
-
-
+# red.viewBestFeatures()
+#
+# red.selectBestModel()
+#
+# red.predictingValues()
