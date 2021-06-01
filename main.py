@@ -1,29 +1,25 @@
 import collections
+import warnings
 from collections import Counter
-
-import numpy as np  # linear algebra
-import pandas as pd  # data processing, CSV file I/O (e.g. pd.read_csv)
 
 # data visualisation
 import matplotlib.pyplot as plt
+import numpy as np  # linear algebra
+import pandas as pd  # data processing, CSV file I/O (e.g. pd.read_csv)
 import seaborn as sns
+from catboost import CatBoostClassifier
+from imblearn.over_sampling import SMOTE
 from scipy import stats
 from scipy.stats import norm, boxcox
-from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier, GradientBoostingClassifier
-from sklearn.linear_model import LogisticRegression
+from scipy.stats import randint as sp_randInt
+from scipy.stats import uniform as sp_randFloat
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, confusion_matrix, plot_confusion_matrix, classification_report
-from sklearn.model_selection import GridSearchCV, train_test_split, RandomizedSearchCV
-from sklearn.naive_bayes import GaussianNB
+from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
-from sklearn.tree import DecisionTreeClassifier
-from imblearn.over_sampling import SMOTE
 from xgboost import XGBClassifier
-from catboost import CatBoostClassifier
-from scipy.stats import uniform as sp_randFloat
-from scipy.stats import randint as sp_randInt
 
-import warnings
 warnings.filterwarnings('ignore')
 
 
@@ -271,8 +267,18 @@ class RedWine:
 
         plot_confusion_matrix(randm, self.x_test, self.y_test, cmap="hot")
         plt.show()
-        print(" \t \t  RandomForestClassifier Classification Report")
+        print(" \t \t  CatBoostClassifier Classification Report")
         print(classification_report(self.y_test, pred_cat))
+
+    def modelResult(self):
+        df_result = pd.DataFrame({"Score": self.results, "ML Models": ["KNN", "GradientBoostingClassifier",
+                                                                       "SVC", "XGBClassifier", "CatBoostClassifier",
+                                                                       "RandomForestClassifier"]})
+        print(df_result)
+        g = sns.barplot("Score", "ML Models", data=df_result, palette='BrBG')
+        g.set_xlabel("Score")
+        g.set_title("Classifier Model Results", color="Black")
+        plt.show()
 
 
 red = RedWine("C:\\Users\\Michael\\PycharmProjects\\BIAI\\winequality-red.csv")
@@ -346,7 +352,7 @@ red.howManyQualityValues()
 
 # Lets balance our data
 red.smote()
-
+# some models
 # KNeighborsClassifier
 red.kNeighborsClassifier()
 
@@ -359,5 +365,10 @@ red.svc()
 # XGBClassifier
 red.xgb()
 
+# CatBoostClassifier
+red.catBoostClassifier()
+
 # RandomForestClassifier
 red.randomForestClassifier()
+
+red.modelResult()
