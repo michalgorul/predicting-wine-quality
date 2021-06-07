@@ -2,10 +2,9 @@ import collections
 import warnings
 from collections import Counter
 
-# data visualisation
 import matplotlib.pyplot as plt
-import numpy as np  # linear algebra
-import pandas as pd  # data processing, CSV file I/O (e.g. pd.read_csv)
+import numpy as np
+import pandas as pd
 import seaborn as sns
 from catboost import CatBoostClassifier
 from imblearn.over_sampling import SMOTE
@@ -17,6 +16,7 @@ from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, confusion_matrix, plot_confusion_matrix, classification_report
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 from xgboost import XGBClassifier
 
@@ -86,6 +86,7 @@ class RedWine:
     def skewness(self, *columns):
         print()
         for column in columns:
+            # mu - arithmetic mean, sigma - standard deviation
             (mu, sigma) = norm.fit(self.data[column])
             print("Mean value of {}: {}, sigma {}: {}".format(column, mu, column, sigma))
             plt.figure(figsize=(10, 4))
@@ -114,7 +115,7 @@ class RedWine:
             Q1 = np.percentile(self.data[c], 25)
             # 3st quartile
             Q3 = np.percentile(self.data[c], 75)
-            # IQR
+            # interquartile range
             IQR = Q3 - Q1
             # Outlier Step
             outlier_step = IQR * 1.5
@@ -152,10 +153,16 @@ class RedWine:
         x = self.data.drop(["quality"], axis=1)
         self.x_train, self.x_test, self.y_train, self.y_test = train_test_split(x, y, test_size=self.test_size,
                                                                                 random_state=200)
-        sm = SMOTE(random_state=14)
+        sm = SMOTE(random_state=15)
         self.x_train_sm, self.y_train_sm = sm.fit_resample(self.x_train, self.y_train)
         print("Before smote: ", collections.Counter(self.y_train))
         print("After smote: ", collections.Counter(self.y_train_sm))
+
+        # It transforms the data in such a manner that it has mean as 0 and standard deviation as 1.
+        # In short, it standardizes the data.
+        scaler = StandardScaler()
+        self.x_train_sm = scaler.fit_transform(self.x_train_sm)
+        self.x_test = scaler.transform(self.x_test)
 
     def kNeighborsClassifier(self):
         knn = KNeighborsClassifier(n_neighbors=2)
@@ -274,14 +281,14 @@ class RedWine:
         df_result = pd.DataFrame({"Score": self.results, "ML Models": ["KNN", "GradientBoostingClassifier",
                                                                        "SVC", "XGBClassifier", "CatBoostClassifier",
                                                                        "RandomForestClassifier"]})
-        print(df_result)
-        g = sns.barplot("Score", "ML Models", data=df_result, palette='BrBG')
+        print(df_result.sort_values(by='Score', ascending=False))
+        g = sns.barplot("\nScore", "ML Models", data=df_result, palette='BrBG')
         g.set_xlabel("Score")
         g.set_title("Classifier Model Results", color="Black")
         plt.show()
 
 
-red = RedWine("C:\\Users\\Michael\\PycharmProjects\\BIAI\\winequality-red.csv")
+red = RedWine("winequality-red.csv")
 
 # red.basicInfo()
 #
@@ -331,7 +338,7 @@ red = RedWine("C:\\Users\\Michael\\PycharmProjects\\BIAI\\winequality-red.csv")
 # red.skewness("fixed acidity", "residual sugar", "free sulfur dioxide", "total sulfur dioxide", "alcohol")
 #
 # # Trying to eliminate skewness by using box cox
-# red.fixSkewness("fixed acidity", "residual sugar", "free sulfur dioxide", "total sulfur dioxide", "alcohol")
+red.fixSkewness("fixed acidity", "residual sugar", "free sulfur dioxide", "total sulfur dioxide", "alcohol")
 #
 # # View corrected skewness on graphs
 # red.skewness("fixed acidity", "residual sugar", "free sulfur dioxide", "total sulfur dioxide", "alcohol")
@@ -341,6 +348,7 @@ red = RedWine("C:\\Users\\Michael\\PycharmProjects\\BIAI\\winequality-red.csv")
 # red.viewOutliers()
 red.countAndRemoveOutliers(red.data.columns[:-1])
 # red.viewOutliers()
+# red.correlationPlot()
 
 # Show how many values depending on quality
 red.howManyQualityValues()
@@ -350,9 +358,11 @@ red.categoriseNumbers()
 red.howManyQualityValues()
 # We can see the difference between those two
 
-# Lets balance our data
+# Balance the data by oversampling the minority class
 red.smote()
-# some models
+
+# Some model making ways
+
 # KNeighborsClassifier
 red.kNeighborsClassifier()
 
@@ -371,4 +381,5 @@ red.catBoostClassifier()
 # RandomForestClassifier
 red.randomForestClassifier()
 
+# View results
 red.modelResult()
