@@ -6,6 +6,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from catboost import CatBoostClassifier
 from imblearn.over_sampling import SMOTE
 from scipy import stats
@@ -18,12 +21,13 @@ from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
+from torch.utils.data import DataLoader, TensorDataset, random_split
 from xgboost import XGBClassifier
 
 warnings.filterwarnings('ignore')
 
 
-class RedWine:
+class PredictingWithSklearn:
     def __init__(self, filePath):
         self.data = pd.read_csv(filePath)
         self.x = pd.DataFrame.empty
@@ -288,98 +292,312 @@ class RedWine:
         plt.show()
 
 
-red = RedWine("winequality-red.csv")
+# Create Fully Connected Network
+class NeuralNetwork(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear = nn.Linear(input_size, output_size)
+        self.tanh = nn.Tanh()
 
-# red.basicInfo()
+    def forward(self, x):
+        # Linear Activation
+        out = self.linear(x)
+        # out = self.tanh(x)
+        return out
+
+    def training_step(self, batch):
+        inputs, targets = batch
+        # Generate predictions
+        out = self(inputs)
+        # Calcuate loss
+        loss = F.l1_loss(out, targets)
+        return loss
+
+    def validation_step(self, batch):
+        inputs, targets = batch
+        # Generate predictions
+        out = self(inputs)
+        # Calculate loss
+        loss = F.l1_loss(out, targets)
+
+        # creates a new view such that these operations are no more tracked i.e gradient is no longer
+        # being computed and subgraph is not going to be recorded.
+        return {'val_loss': loss.detach()}
+
+    def validation_epoch_end(self, outputs):
+        batch_losses = [x['val_loss'] for x in outputs]
+        epoch_loss = torch.stack(batch_losses).mean()
+        return {'val_loss': epoch_loss.item()}
+
+    def epoch_end(self, epoch, result, num_epochs):
+        # Print result every 100th epoch
+        if (epoch + 1) % 100 == 0 or epoch == num_epochs - 1:
+            print("Epoch [{}], val_loss: {:.4f}".format(epoch + 1, result['val_loss']))
+
+
+def predicting_using_sklearn():
+    red = PredictingWithSklearn("winequality-red.csv")
+
+    # red.basicInfo()
+
+    # # fixed acidity impact on quality
+    # red.impactOnQuality("fixed acidity")
+    #
+    # # volatile acidity impact on quality
+    # red.impactOnQuality("volatile acidity")
+    #
+    # # cidric acid impact on quality
+    # red.impactOnQuality("citric acid")
+    #
+    # # residual sugar impact on quality
+    # red.impactOnQuality("residual sugar")
+    #
+    # # chlorides impact on quality
+    # red.impactOnQuality("chlorides")
+    #
+    # # free sulfur dioxide impact on quality
+    # red.impactOnQuality("free sulfur dioxide")
+    #
+    # # total sulfur dioxide impact on quality
+    # red.impactOnQuality("total sulfur dioxide")
+    #
+    # # density impact on quality
+    # red.impactOnQuality("density")
+    #
+    # # pH impact on quality
+    # red.impactOnQuality("pH")
+    #
+    # # sulphates impact on quality
+    # red.impactOnQuality("sulphates")
+    #
+    # # alcohol impact on quality
+    # red.impactOnQuality("alcohol")
+    #
+    # # basic info about quality of wines
+    # red.infoAboutQuality()
+    #
+    # # correlation plot
+    # red.correlationPlot()
+    #
+    # # Distribution of Variables
+    # red.distributionOfVariables()
+
+    # View skewness on graphs
+    red.skewness("fixed acidity", "residual sugar", "free sulfur dioxide", "total sulfur dioxide", "alcohol")
+
+    # Trying to eliminate skewness by using box cox
+    red.fixSkewness("fixed acidity", "residual sugar", "free sulfur dioxide", "total sulfur dioxide", "alcohol")
+
+    # View corrected skewness on graphs
+    red.skewness("fixed acidity", "residual sugar", "free sulfur dioxide", "total sulfur dioxide", "alcohol")
+
+    # Viewing outliers
+
+    red.viewOutliers()
+    red.countAndRemoveOutliers(red.data.columns[:-1])
+    red.viewOutliers()
+    red.correlationPlot()
+
+    # Show how many values depending on quality
+    red.howManyQualityValues()
+
+    # Categorise numbers for low and high quality
+    red.categoriseNumbers()
+    red.howManyQualityValues()
+    # We can see the difference between those two
+
+    # Balance the data by oversampling the minority class
+    red.smote()
+
+    # Some model making ways
+
+    # KNeighborsClassifier
+    red.kNeighborsClassifier()
+
+    # GradientBoostingClassifier
+    red.gradientBoostingClassifier()
+
+    # SVC
+    red.svc()
+
+    # XGBClassifier
+    red.xgb()
+
+    # CatBoostClassifier
+    red.catBoostClassifier()
+
+    # RandomForestClassifier
+    red.randomForestClassifier()
+
+    # View results
+    red.modelResult()
+
+
+def evaluate(model, validation_loader):
+    outputs = [model.validation_step(batch) for batch in validation_loader]
+    return model.validation_epoch_end(outputs)
+
+
+def fit(epochs, learning_rate, model, train_loader, val_loader, opt_func=torch.optim.SGD):
+    history = []
+    optimizer = opt_func(model.parameters(), learning_rate)
+    for epoch in range(epochs):
+        # Training Phase
+        for batch in train_loader:
+            loss = model.training_step(batch)
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+        # Validation phase
+        result = evaluate(model, val_loader)
+        model.epoch_end(epoch, result, epochs)
+        history.append(result)
+
+    return history
+
+
+def predict_single(input, target, model):
+    inputs = input.unsqueeze(0)
+    predictions = model(inputs)
+    prediction = predictions[0].detach()
+    print("Input:", input)
+    print("Target:", target)
+    print("Prediction:", prediction)
+
+
+def check_accuracy(model):
+    val = 0.0
+    num_samples = len(validation_dataset)
+
+    with torch.no_grad():
+        for x, y in validation_dataset:
+            inputs = x.unsqueeze(0)
+            predictions = model(inputs)
+            prediction = predictions[0].detach()
+
+            if float(y) <= float(prediction):
+                val += float(y) / float(prediction)
+            else:
+                val += float(prediction) / float(y)
+
+    return val / num_samples
+
+
+data = pd.read_csv("winequality-red.csv")
+input_cols = list(data.columns)[:-1]
+output_cols = ['quality']
+
+# Making a copy of the original dataframe
+pd_dataframe = data.copy(deep=True)
+
+# Extract input & outupts as numpy arrays
+inputs_array = pd_dataframe[input_cols].to_numpy()
+targets_array = pd_dataframe[output_cols].to_numpy()
+inputs = torch.from_numpy(inputs_array).type(torch.float)
+targets = torch.from_numpy(targets_array).type(torch.float)
+
+dataset = TensorDataset(inputs, targets)
+
+# Hyperparameters
+input_size = len(input_cols)
+output_size = len(output_cols)
+learning_rate = 1e-5
+batch_size = 50
+epochs = 1000
+
+training_dataset, validation_dataset = random_split(dataset, [1300, 299])
+training_loader = DataLoader(training_dataset, batch_size, shuffle=True)
+validation_loader = DataLoader(validation_dataset, batch_size)
+
+model = NeuralNetwork()
+
+history5 = fit(epochs, learning_rate, model, training_loader, validation_loader)
+
+# # Predicting quality of one wine
+# input, target = validation_dataset[62]
+# predict_single(input, target, model)
+
+print(f"Accuracy : {check_accuracy(model) * 100:.2f}%")
+
+# model = NN(784, 10)
+# x = torch.randn(64, 784)
+# print(model(x).shape)
 #
-# # fixed acidity impact on quality
-# red.impactOnQuality("fixed acidity")
+# # Set device
+# # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# device = torch.device('cpu')
 #
-# # volatile acidity impact on quality
-# red.impactOnQuality("volatile acidity")
+# # Hyperparameters
+# input_size = 784
+# num_classes = 10
+# learning_rate = 0.001
+# batch_size = 64
+# num_epochs = 20
 #
-# # cidric acid impact on quality
-# red.impactOnQuality("citric acid")
+# # Load Data
+# train_dataset = datasets.MNIST(root='dataset/', train=True, transform=transforms.ToTensor(), download=True)
+# train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
+# test_dataset = datasets.MNIST(root='dataset/', train=False, transform=transforms.ToTensor(), download=True)
+# test_loader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=True)
 #
-# # residual sugar impact on quality
-# red.impactOnQuality("residual sugar")
+# # Initialize network
+# model = NN(input_size=input_size, num_classes=num_classes).to(device)
 #
-# # chlorides impact on quality
-# red.impactOnQuality("chlorides")
+# # Loss and optimizer
+# critertion = nn.CrossEntropyLoss()
+# optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 #
-# # free sulfur dioxide impact on quality
-# red.impactOnQuality("free sulfur dioxide")
+# # Train network
 #
-# # total sulfur dioxide impact on quality
-# red.impactOnQuality("total sulfur dioxide")
+# for epoch in range(num_epochs):
+#     for batch_idx, (data, targets) in enumerate(train_loader):
+#         data = data.to(device=device)
+#         targets = targets.to(device=device)
 #
-# # density impact on quality
-# red.impactOnQuality("density")
+#         # Get to correct shape
+#         data = data.reshape(data.shape[0], -1)
 #
-# # pH impact on quality
-# red.impactOnQuality("pH")
+#         # forward
+#         scores = model(data)
+#         loss = critertion(scores, targets)
 #
-# # sulphates impact on quality
-# red.impactOnQuality("sulphates")
+#         # backward
+#         optimizer.zero_grad()
+#         loss.backward()
 #
-# # alcohol impact on quality
-# red.impactOnQuality("alcohol")
+#         # gradient descent or adam step
+#         optimizer.step()
 #
-# # basic info about quality of wines
-# red.infoAboutQuality()
-
-# # correlation plot
-# red.correlationPlot()
-
-# # Distribution of Variables
-# red.distributionOfVariables()
-
-# # View skewness on graphs
-# red.skewness("fixed acidity", "residual sugar", "free sulfur dioxide", "total sulfur dioxide", "alcohol")
 #
-# # Trying to eliminate skewness by using box cox
-red.fixSkewness("fixed acidity", "residual sugar", "free sulfur dioxide", "total sulfur dioxide", "alcohol")
+# # Check accuracy on training $ test to see how good our model is
 #
-# # View corrected skewness on graphs
-# red.skewness("fixed acidity", "residual sugar", "free sulfur dioxide", "total sulfur dioxide", "alcohol")
-
-# # Viewing outliers
-
-# red.viewOutliers()
-red.countAndRemoveOutliers(red.data.columns[:-1])
-# red.viewOutliers()
-# red.correlationPlot()
-
-# Show how many values depending on quality
-red.howManyQualityValues()
-
-# Categorise numbers for low and high quality
-red.categoriseNumbers()
-red.howManyQualityValues()
-# We can see the difference between those two
-
-# Balance the data by oversampling the minority class
-red.smote()
-
-# Some model making ways
-
-# KNeighborsClassifier
-red.kNeighborsClassifier()
-
-# GradientBoostingClassifier
-red.gradientBoostingClassifier()
-
-# SVC
-red.svc()
-
-# XGBClassifier
-red.xgb()
-
-# CatBoostClassifier
-red.catBoostClassifier()
-
-# RandomForestClassifier
-red.randomForestClassifier()
-
-# View results
-red.modelResult()
+# def check_accuracy(loader, model):
+#     if loader.dataset.train:
+#         print("Working on training data")
+#     else:
+#         print("Working on test data")
+#
+#     num_correct = 0
+#     num_samples = 0
+#     model.eval()
+#
+#     with torch.no_grad():
+#         for x, y in loader:
+#             x = x.to(device=device)
+#             y = y.to(device=device)
+#             x = x.reshape(x.shape[0], -1)
+#
+#             scores = model(x)
+#
+#             # 64*10
+#             _, predictions = scores.max(1)
+#             num_correct += (predictions == y).sum()
+#             num_samples += predictions.size(0)
+#
+#         print(f'Got {num_correct} / {num_samples} with accuracy {float(num_correct) / float(num_samples) * 100:.2f}')
+#
+#     model.train()
+#
+#
+# check_accuracy(train_loader, model)
+# check_accuracy(test_loader, model)
