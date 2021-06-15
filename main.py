@@ -15,7 +15,7 @@ from scipy import stats
 from scipy.stats import norm, boxcox
 from scipy.stats import randint as sp_randInt
 from scipy.stats import uniform as sp_randFloat
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, ExtraTreesClassifier
 from sklearn.metrics import accuracy_score, confusion_matrix, plot_confusion_matrix, classification_report
 from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from sklearn.neighbors import KNeighborsClassifier
@@ -292,47 +292,21 @@ class PredictingWithSklearn:
         plt.show()
 
 
-# Create Fully Connected Network
-class NeuralNetwork(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.linear = nn.Linear(input_size, output_size)
-        self.tanh = nn.Tanh()
+def checking_importance(data):
+    x = data.drop("quality", axis=True)
+    y = data["quality"]
 
-    def forward(self, x):
-        # Linear Activation
-        out = self.linear(x)
-        # out = self.tanh(x)
-        return out
-
-    def training_step(self, batch):
-        inputs, targets = batch
-        # Generate predictions
-        out = self(inputs)
-        # Calcuate loss
-        loss = F.l1_loss(out, targets)
-        return loss
-
-    def validation_step(self, batch):
-        inputs, targets = batch
-        # Generate predictions
-        out = self(inputs)
-        # Calculate loss
-        loss = F.l1_loss(out, targets)
-
-        # creates a new view such that these operations are no more tracked i.e gradient is no longer
-        # being computed and subgraph is not going to be recorded.
-        return {'val_loss': loss.detach()}
-
-    def validation_epoch_end(self, outputs):
-        batch_losses = [x['val_loss'] for x in outputs]
-        epoch_loss = torch.stack(batch_losses).mean()
-        return {'val_loss': epoch_loss.item()}
-
-    def epoch_end(self, epoch, result, num_epochs):
-        # Print result every 100th epoch
-        if (epoch + 1) % 100 == 0 or epoch == num_epochs - 1:
-            print("Epoch [{}], val_loss: {:.4f}".format(epoch + 1, result['val_loss']))
+    columns = ['fixed_acidity', 'volatile_acidity', 'citric_acid',
+               'residual_sugar', 'chlorides', 'free_sulfur_dioxide',
+               'total_sulfur_dioxide', 'density', 'pH', 'sulphates', 'alcohol']
+    model = ExtraTreesClassifier()
+    model.fit(x, y)
+    importances = pd.DataFrame({"columns": columns,
+                                "importances": model.feature_importances_})
+    print(importances.sort_values(by='importances', ascending=False))
+    feat_importances = pd.Series(model.feature_importances_, index=x.columns)
+    feat_importances.nlargest(9).plot(kind="barh")
+    plt.show()
 
 
 def predicting_using_sklearn():
@@ -451,18 +425,25 @@ def fit(epochs, learning_rate, model, train_loader, val_loader, opt_func=torch.o
         # Validation phase
         result = evaluate(model, val_loader)
         model.epoch_end(epoch, result, epochs)
-        history.append(result)
+        history.append(*result.values())
 
     return history
 
 
 def predict_single(input, target, model):
+    val = 0
     inputs = input.unsqueeze(0)
     predictions = model(inputs)
     prediction = predictions[0].detach()
-    print("Input:", input)
-    print("Target:", target)
+    prediction = prediction[-1]
+    print("Input:", input.double())
+    print("Target:", target.double())
     print("Prediction:", prediction)
+    if target.double() <= float(prediction):
+        val = target.double() / float(prediction)
+    else:
+        val = float(prediction) / target.double()
+    print("Accuracy:", round(val.__float__() * 100.0, 2), "%")
 
 
 def check_accuracy(model):
@@ -472,9 +453,8 @@ def check_accuracy(model):
     with torch.no_grad():
         for x, y in validation_dataset:
             inputs = x.unsqueeze(0)
-            predictions = model(inputs)
-            prediction = predictions[0].detach()
-
+            predictions = model(inputs).detach()
+            prediction = predictions[0][-1]
             if float(y) <= float(prediction):
                 val += float(y) / float(prediction)
             else:
@@ -483,8 +463,60 @@ def check_accuracy(model):
     return val / num_samples
 
 
+# Create Fully Connected Network
+class NeuralNetwork(nn.Module):
+    def __init__(self):
+        super(NeuralNetwork, self).__init__()
+        self.flatten = nn.Flatten()
+        self.linear_relu_stack = nn.Sequential(
+            # input_size Input-Neurons, output_size Output-Neurons, Linearer Layer
+            nn.Linear(input_size, output_size),
+            nn.ReLU()
+            # nn.Linear(output_size, input_size // 4),
+            # nn.ReLU(),
+            # nn.Linear(input_size // 4, 10),
+            # nn.ReLU()
+        )
+
+    def forward(self, x):
+        x = self.flatten(x)
+        logits = self.linear_relu_stack(x)
+        return logits
+
+    def training_step(self, batch):
+        inputs, targets = batch
+        # Generate predictions
+        out = self(inputs)
+        # Calcuate loss
+        loss = F.l1_loss(out, targets)
+        return loss
+
+    def validation_step(self, batch):
+        inputs, targets = batch
+        # Generate predictions
+        out = self(inputs)
+        # Calculate loss
+        loss = F.l1_loss(out, targets)
+
+        return {'val_loss': loss}
+
+    def validation_epoch_end(self, outputs):
+        batch_losses = [x['val_loss'] for x in outputs]
+        epoch_loss = torch.stack(batch_losses).mean()
+        return {'val_loss': epoch_loss.item()}
+
+    def epoch_end(self, epoch, result, num_epochs):
+        # Print result every 100th epoch
+        if (epoch + 1) % 100 == 0 or epoch == num_epochs - 1:
+            print("Epoch [{}], val_loss: {:.4f}".format(epoch + 1, result['val_loss']))
+
+
 data = pd.read_csv("winequality-red.csv")
-input_cols = list(data.columns)[:-1]
+
+# checking_importance(data)
+
+# input_cols = list(data.columns)[:-1]
+input_cols = ['alcohol', 'sulphates', 'total sulfur dioxide', 'volatile acidity']
 output_cols = ['quality']
 
 # Making a copy of the original dataframe
@@ -501,103 +533,30 @@ dataset = TensorDataset(inputs, targets)
 # Hyperparameters
 input_size = len(input_cols)
 output_size = len(output_cols)
-learning_rate = 1e-5
-batch_size = 50
+# The amount that the weights are updated during training
+learning_rate = 0.001
+# number of samples that will be propagated through the network.
+batch_size = 80
+# the number times that the learning algorithm will work through the entire training dataset.
 epochs = 1000
 
 training_dataset, validation_dataset = random_split(dataset, [1300, 299])
 training_loader = DataLoader(training_dataset, batch_size, shuffle=True)
 validation_loader = DataLoader(validation_dataset, batch_size)
 
-model = NeuralNetwork()
+model = NeuralNetwork().to('cpu')
 
-history5 = fit(epochs, learning_rate, model, training_loader, validation_loader)
-
-# # Predicting quality of one wine
-# input, target = validation_dataset[62]
-# predict_single(input, target, model)
-
+history = fit(epochs, learning_rate, model, training_loader, validation_loader)
 print(f"Accuracy : {check_accuracy(model) * 100:.2f}%")
 
-# model = NN(784, 10)
-# x = torch.randn(64, 784)
-# print(model(x).shape)
-#
-# # Set device
-# # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-# device = torch.device('cpu')
-#
-# # Hyperparameters
-# input_size = 784
-# num_classes = 10
-# learning_rate = 0.001
-# batch_size = 64
-# num_epochs = 20
-#
-# # Load Data
-# train_dataset = datasets.MNIST(root='dataset/', train=True, transform=transforms.ToTensor(), download=True)
-# train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
-# test_dataset = datasets.MNIST(root='dataset/', train=False, transform=transforms.ToTensor(), download=True)
-# test_loader = DataLoader(dataset=test_dataset, batch_size=batch_size, shuffle=True)
-#
-# # Initialize network
-# model = NN(input_size=input_size, num_classes=num_classes).to(device)
-#
-# # Loss and optimizer
-# critertion = nn.CrossEntropyLoss()
-# optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-#
-# # Train network
-#
-# for epoch in range(num_epochs):
-#     for batch_idx, (data, targets) in enumerate(train_loader):
-#         data = data.to(device=device)
-#         targets = targets.to(device=device)
-#
-#         # Get to correct shape
-#         data = data.reshape(data.shape[0], -1)
-#
-#         # forward
-#         scores = model(data)
-#         loss = critertion(scores, targets)
-#
-#         # backward
-#         optimizer.zero_grad()
-#         loss.backward()
-#
-#         # gradient descent or adam step
-#         optimizer.step()
-#
-#
-# # Check accuracy on training $ test to see how good our model is
-#
-# def check_accuracy(loader, model):
-#     if loader.dataset.train:
-#         print("Working on training data")
-#     else:
-#         print("Working on test data")
-#
-#     num_correct = 0
-#     num_samples = 0
-#     model.eval()
-#
-#     with torch.no_grad():
-#         for x, y in loader:
-#             x = x.to(device=device)
-#             y = y.to(device=device)
-#             x = x.reshape(x.shape[0], -1)
-#
-#             scores = model(x)
-#
-#             # 64*10
-#             _, predictions = scores.max(1)
-#             num_correct += (predictions == y).sum()
-#             num_samples += predictions.size(0)
-#
-#         print(f'Got {num_correct} / {num_samples} with accuracy {float(num_correct) / float(num_samples) * 100:.2f}')
-#
-#     model.train()
-#
-#
-# check_accuracy(train_loader, model)
-# check_accuracy(test_loader, model)
+title = '1 layer, batch_size = ' + str(batch_size) + ', learning_rate = ' + str(learning_rate)
+
+plt.plot(history)
+plt.title(title)
+plt.ylabel('value loss')
+plt.xlabel('epoch')
+plt.show()
+
+print("\nPredicting quality of one wine: ")
+input, target = validation_dataset[62]
+predict_single(input, target, model)
